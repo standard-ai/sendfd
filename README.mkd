@@ -12,5 +12,7 @@ for that).
 Thanks to [roblabla] for giving us the crate name, as well as for the inspiration
 from their original implementation.
 
+sendfd is distributed under Apache 2.0 or BSD 3-clause license at your choice.
+
 [the documentation]: https://docs.rs/sendfd
 [roblabla]: https://github.com/roblabla
