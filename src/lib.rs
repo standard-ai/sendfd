@@ -117,7 +117,7 @@ impl Sendable for RawFd {
 }
 
 // Replace with `<*const u8>::offset_from` once it is stable.
-pub unsafe fn ptr_offset_from(this: *const u8, origin: *const u8) -> isize {
+unsafe fn ptr_offset_from(this: *const u8, origin: *const u8) -> isize {
     isize::wrapping_sub(this as _, origin as _)
 }
 
