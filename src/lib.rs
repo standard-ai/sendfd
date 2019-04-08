@@ -2,12 +2,66 @@ extern crate libc;
 
 use std::{io, mem, alloc, ptr};
 use std::os::unix::net;
-use std::os::unix::io::{RawFd, AsRawFd};
+use std::os::unix::io::{RawFd, AsRawFd, FromRawFd};
+
+/// Delegate implementation of Receivable or Sendable to a given expression for multiple types at
+/// a time, reducing code duplication significantly.
+macro_rules! delegate {
+    ($(impl Receivable for $($t:ty),* = $body:expr);*) => {
+        $($(
+            impl Receivable for $t {
+                fn from_received_fd(fd: RawFd) -> Self {
+                    $body(fd)
+                }
+            }
+        )*)*
+    };
+    ($(impl Sendable for $($t:ty),* = $body:expr);*) => {
+        $($(
+            impl Sendable for $t {
+                fn as_sendable_fd(&self) -> RawFd {
+                    $body(self)
+                }
+            }
+        )*)*
+    }
+}
+
+
+/// A trait to express the ability to construct an object from a raw file descriptor.
+///
+/// Unlike [`std::os::unix::io::FromRawFd`] this also supports the identity conversion (`RawFd` to
+/// `RawFd`).
+pub trait Receivable {
+    /// Constructs a new instance of Self from the given raw file descriptor.
+    ///
+    /// This function consumes ownership of the specified file descriptor. The returned object will
+    /// take responsibility for closing it when the object goes out of scope.
+    ///
+    /// This function shall only be implemented for types which represent file descriptors that
+    /// allow safe concurrent modification of underlying resource, as this gets called with handles
+    /// that were duplicated.
+    fn from_received_fd(fd: RawFd) -> Self;
+}
+
+/// A trait to express the ability to inspect the raw file descriptor behind an object.
+///
+/// Unlike [`std::os::unix::io::AsRawFd`] this also supports the identity conversion (`RawFd` to
+/// `RawFd`).
+pub trait Sendable {
+    /// Inspect the raw file descriptor.
+    ///
+    /// This method does not pass ownership of the raw file descriptor to the caller. The
+    /// descriptor is only guaranteed to be valid while the original object has not yet been
+    /// destroyed.
+    fn as_sendable_fd(&self) -> RawFd;
+}
 
 /// An extension trait that enables sending associated file descriptors along with the data.
 pub trait SendWithFd {
     /// Send the bytes and the file descriptors.
-    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize>;
+    fn send_with_fd<T>(&self, bytes: &[u8], fds: &[T]) -> io::Result<usize>
+    where T: Sendable;
 }
 
 /// An extension trait that enables receiving associated file descriptors along with the data.
@@ -15,7 +69,51 @@ pub trait RecvWithFd {
     /// Receive the bytes and the file descriptors.
     ///
     /// The bytes and the file descriptors are received into the corresponding buffers.
-    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)>;
+    fn recv_with_fd<T>(&self, bytes: &mut [u8], fds: &mut [T]) -> io::Result<(usize, usize)>
+    where T: Receivable;
+}
+
+delegate! {
+    impl Receivable for
+        ::std::fs::File,
+        ::std::net::TcpListener,
+        ::std::net::TcpStream,
+        ::std::net::UdpSocket,
+        ::std::os::unix::net::UnixDatagram,
+        ::std::os::unix::net::UnixListener,
+        ::std::os::unix::net::UnixStream,
+        ::std::process::Stdio
+    = |fd| unsafe { FromRawFd::from_raw_fd(fd) }
+}
+
+impl Receivable for RawFd {
+    fn from_received_fd(fd: RawFd) -> Self {
+        fd
+    }
+}
+
+delegate! {
+    impl Sendable for
+        ::std::fs::File,
+        ::std::io::Stderr,
+        ::std::io::Stdin,
+        ::std::io::Stdout,
+        ::std::net::TcpListener,
+        ::std::net::TcpStream,
+        ::std::net::UdpSocket,
+        ::std::os::unix::net::UnixDatagram,
+        ::std::os::unix::net::UnixListener,
+        ::std::os::unix::net::UnixStream,
+        ::std::process::ChildStderr,
+        ::std::process::ChildStdin,
+        ::std::process::ChildStdout
+    = |this| AsRawFd::as_raw_fd(this)
+}
+
+impl Sendable for RawFd {
+    fn as_sendable_fd(&self) -> RawFd {
+        *self
+    }
 }
 
 // Replace with `<*const u8>::offset_from` once it is stable.
@@ -66,17 +164,14 @@ unsafe fn construct_msghdr_for(iov: &mut libc::iovec, fd_count: usize)
 
 /// A common implementation of `sendmsg` that sends provided bytes with ancillary file descriptors
 /// over either a datagram or stream unix socket.
-fn send_with_fd(
-    socket_fd: RawFd,
-    bytes: &[u8],
-    fds: &[RawFd],
-) -> io::Result<usize> {
+fn send_with_fd<T>(socket: RawFd, bs: &[u8], fds: &[T]) -> io::Result<usize>
+where T: Sendable {
     unsafe {
         let mut iov = libc::iovec {
             // NB: this casts *const to *mut, and in doing so we trust the OS to be a good citizen
             // and not mutate our buffer. This is the API we have to live with.
-            iov_base: bytes.as_ptr() as *const _ as *mut _,
-            iov_len: bytes.len(),
+            iov_base: bs.as_ptr() as *const _ as *mut _,
+            iov_len: bs.len(),
         };
         let (mut msghdr, cmsg_layout, fd_len) = construct_msghdr_for(&mut iov, fds.len());
         let cmsg_buffer = msghdr.msg_control;
@@ -88,9 +183,11 @@ fn send_with_fd(
             cmsg_type: libc::SCM_RIGHTS,
             cmsg_len: libc::CMSG_LEN(fd_len as u32) as usize,
         });
-        let cmsg_data = libc::CMSG_DATA(cmsg_header);
-        ptr::copy_nonoverlapping(fds.as_ptr() as *const u8, cmsg_data, fd_len);
-        let count = libc::sendmsg(socket_fd, &msghdr as *const _, 0);
+        let cmsg_data = libc::CMSG_DATA(cmsg_header) as *mut RawFd;
+        for (i, fd) in fds.iter().enumerate() {
+            ptr::write_unaligned(cmsg_data.offset(i as isize), <T as Sendable>::as_sendable_fd(fd));
+        }
+        let count = libc::sendmsg(socket, &msghdr as *const _, 0);
         if count < 0 {
             let error = io::Error::last_os_error();
             alloc::dealloc(cmsg_buffer as *mut _, cmsg_layout);
@@ -104,19 +201,16 @@ fn send_with_fd(
 
 /// A common implementation of `recvmsg` that receives provided bytes and the ancillary file
 /// descriptors over either a datagram or stream unix socket.
-fn recv_with_fd(
-    socket_fd: RawFd,
-    bytes: &mut [u8],
-    mut fds: &mut [RawFd]
-) -> io::Result<(usize, usize)> {
+fn recv_with_fd<T>(socket: RawFd, bs: &mut [u8], mut fds: &mut [T]) -> io::Result<(usize, usize)>
+where T: Receivable {
     unsafe {
         let mut iov = libc::iovec {
-            iov_base: bytes.as_mut_ptr() as *mut _,
-            iov_len: bytes.len(),
+            iov_base: bs.as_mut_ptr() as *mut _,
+            iov_len: bs.len(),
         };
         let (mut msghdr, cmsg_layout, _) = construct_msghdr_for(&mut iov, fds.len());
         let cmsg_buffer = msghdr.msg_control;
-        let count = libc::recvmsg(socket_fd, &mut msghdr as *mut _, 0);
+        let count = libc::recvmsg(socket, &mut msghdr as *mut _, 0);
         if count < 0 {
             let error = io::Error::last_os_error();
             alloc::dealloc(cmsg_buffer as *mut _, cmsg_layout);
@@ -139,7 +233,9 @@ fn recv_with_fd(
                 let rawfd_count = (data_byte_count / mem::size_of::<RawFd>()) as isize;
                 for i in 0..rawfd_count {
                     if let Some((dst, rest)) = {fds}.split_first_mut() {
-                        *dst = ptr::read_unaligned((data_ptr as *const RawFd).offset(i));
+                        *dst = <T as Receivable>::from_received_fd(
+                            ptr::read_unaligned((data_ptr as *const RawFd).offset(i))
+                        );
                         descriptor_count += 1;
                         fds = rest;
                     } else {
@@ -167,7 +263,8 @@ impl SendWithFd for net::UnixStream {
     ///
     /// Neither is guaranteed to be received by the other end in a single chunk and
     /// may arrive entirely independently.
-    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+    fn send_with_fd<T>(&self, bytes: &[u8], fds: &[T]) -> io::Result<usize>
+    where T: Sendable {
         send_with_fd(self.as_raw_fd(), bytes, fds)
     }
 }
@@ -178,7 +275,8 @@ impl SendWithFd for net::UnixDatagram {
     /// It is guaranteed that the bytes and the associated file descriptors will arrive at the same
     /// time, however the receiver end may not receive the full message if its buffers are too
     /// small.
-    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+    fn send_with_fd<T>(&self, bytes: &[u8], fds: &[T]) -> io::Result<usize>
+    where T: Sendable {
         send_with_fd(self.as_raw_fd(), bytes, fds)
     }
 }
@@ -190,7 +288,8 @@ impl RecvWithFd for net::UnixStream {
     /// It is not guaranteed that the received information will form a single coherent packet of
     /// data. In other words, it is not required that this receives the bytes and file descriptors
     /// that were sent with a single `send_with_fd` call by somebody else.
-    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+    fn recv_with_fd<T>(&self, bytes: &mut [u8], fds: &mut [T]) -> io::Result<(usize, usize)>
+    where T: Receivable {
         recv_with_fd(self.as_raw_fd(), bytes, fds)
     }
 }
@@ -206,7 +305,8 @@ impl RecvWithFd for net::UnixDatagram {
     /// For receiving the file descriptors, the internal buffer is sized according to the size of
     /// the `fds` buffer. If the sender sends `fds.len()` descriptors, but prefaces the descriptors
     /// with some other ancilliary data, then some file descriptors may be truncated as well.
-    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+    fn recv_with_fd<T>(&self, bytes: &mut [u8], fds: &mut [T]) -> io::Result<(usize, usize)>
+    where T: Receivable {
         recv_with_fd(self.as_raw_fd(), bytes, fds)
     }
 }
@@ -316,6 +416,28 @@ mod tests {
                     expected_value
                 );
             }
+        }
+    }
+
+    #[test]
+    fn sending_nonraw() {
+        let (l, r) = net::UnixDatagram::pair().expect("create UnixDatagram pair");
+        let sent_bytes = b"hello world!";
+        let sent_fds = [r];
+        assert_eq!(l.send_with_fd(&sent_bytes[..], &sent_fds[..])
+                    .expect("send should be successful"),
+                   sent_bytes.len());
+    }
+
+    #[test]
+    fn sending_junk_fails() {
+        let (l, _) = net::UnixDatagram::pair().expect("create UnixDatagram pair");
+        let sent_bytes = b"hello world!";
+        if let Ok(_) = l.send_with_fd(&sent_bytes[..], &[i32::max_value()][..]) {
+            panic!("expected an error when sending a junk file descriptor");
+        }
+        if let Ok(_) = l.send_with_fd(&sent_bytes[..], &[0xffi32][..]) {
+            panic!("expected an error when sending a junk file descriptor");
         }
     }
 }
