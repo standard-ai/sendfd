@@ -4,11 +4,17 @@ use std::{io, mem, alloc, ptr};
 use std::os::unix::net;
 use std::os::unix::io::{RawFd, AsRawFd};
 
+/// An extension trait that enables sending associated file descriptors along with the data.
 pub trait SendWithFd {
+    /// Send the bytes and the file descriptors.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize>;
 }
 
+/// An extension trait that enables receiving associated file descriptors along with the data.
 pub trait RecvWithFd {
+    /// Receive the bytes and the file descriptors.
+    ///
+    /// The bytes and the file descriptors are received into the corresponding buffers.
     fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)>;
 }
 
