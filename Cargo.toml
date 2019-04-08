@@ -1,0 +1,12 @@
+[package]
+name = "sendfd"
+version = "0.2.0"
+authors = [
+    "Simonas Kazlauskas <simonas@standard.ai>",
+    "Bernardo Meurer <bernardo@standard.ai>",
+    "Léo Gaspard <leo@standard.ai>"
+]
+edition = "2015"
+
+[dependencies]
+libc = "0.2"
