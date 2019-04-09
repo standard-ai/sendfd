@@ -1,3 +1,5 @@
+extern crate libc;
+
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net;
 use std::{alloc, io, mem, ptr};
