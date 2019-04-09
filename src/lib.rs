@@ -342,18 +342,6 @@ mod tests {
     }
 
     #[test]
-    fn sending_nonraw() {
-        let (l, r) = net::UnixDatagram::pair().expect("create UnixDatagram pair");
-        let sent_bytes = b"hello world!";
-        let sent_fds = [r.as_raw_fd()];
-        assert_eq!(
-            l.send_with_fd(&sent_bytes[..], &sent_fds[..])
-                .expect("send should be successful"),
-            sent_bytes.len()
-        );
-    }
-
-    #[test]
     fn sending_junk_fails() {
         let (l, _) = net::UnixDatagram::pair().expect("create UnixDatagram pair");
         let sent_bytes = b"hello world!";
