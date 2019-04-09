@@ -4,6 +4,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net;
 use std::{alloc, io, mem, ptr};
 
+pub mod changelog;
+
 /// An extension trait that enables sending associated file descriptors along with the data.
 pub trait SendWithFd {
     /// Send the bytes and the file descriptors.
