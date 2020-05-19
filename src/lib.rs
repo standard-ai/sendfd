@@ -64,7 +64,7 @@ unsafe fn construct_msghdr_for(
             msg_iov: iov as *mut _,
             msg_iovlen: 1,
             msg_control: cmsg_buffer,
-            msg_controllen: cmsg_buffer_len,
+            msg_controllen: cmsg_buffer_len as _,
             ..mem::zeroed()
         },
         cmsg_layout,
@@ -92,12 +92,12 @@ fn send_with_fd(socket: RawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
             libc::cmsghdr {
                 cmsg_level: libc::SOL_SOCKET,
                 cmsg_type: libc::SCM_RIGHTS,
-                cmsg_len: libc::CMSG_LEN(fd_len as u32) as usize,
+                cmsg_len: libc::CMSG_LEN(fd_len as u32) as _,
             },
         );
         let cmsg_data = libc::CMSG_DATA(cmsg_header) as *mut RawFd;
         for (i, fd) in fds.iter().enumerate() {
-            ptr::write_unaligned(cmsg_data.offset(i as isize), *fd);
+            ptr::write_unaligned(cmsg_data.add(i), *fd);
         }
         let count = libc::sendmsg(socket, &msghdr as *const _, 0);
         if count < 0 {
@@ -139,8 +139,8 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
                 let data_ptr = libc::CMSG_DATA(cmsg_header);
                 let data_offset = ptr_offset_from(data_ptr, cmsg_header as *const _);
                 debug_assert!(data_offset >= 0);
-                let data_byte_count = (*cmsg_header).cmsg_len - data_offset as usize;
-                debug_assert!((*cmsg_header).cmsg_len > data_offset as usize);
+                let data_byte_count = (*cmsg_header).cmsg_len as usize - data_offset as usize;
+                debug_assert!((*cmsg_header).cmsg_len as isize > data_offset);
                 debug_assert!(data_byte_count % mem::size_of::<RawFd>() == 0);
                 let rawfd_count = (data_byte_count / mem::size_of::<RawFd>()) as isize;
                 let fd_ptr = data_ptr as *const RawFd;
