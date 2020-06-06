@@ -1,5 +1,10 @@
 //! Project changelog
 
+/// Release 0.3.1
+///
+/// * Compatibility with macOS and BSDs.
+pub mod r0_3_1 {}
+
 /// Release 0.3.0
 ///
 /// * Removed the `Receivable` trait, because it is difficult to write meaningful code with `<T as
