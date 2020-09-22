@@ -57,19 +57,16 @@ unsafe fn construct_msghdr_for(
             mem::align_of::<libc::cmsghdr>(),
         ))
     };
-    (
-        libc::msghdr {
-            msg_name: ptr::null_mut(),
-            msg_namelen: 0,
-            msg_iov: iov as *mut _,
-            msg_iovlen: 1,
-            msg_control: cmsg_buffer,
-            msg_controllen: cmsg_buffer_len as _,
-            ..mem::zeroed()
-        },
-        cmsg_layout,
-        fd_len,
-    )
+
+    let mut msghdr = mem::zeroed::<libc::msghdr>();
+    msghdr.msg_name = ptr::null_mut();
+    msghdr.msg_namelen = 0;
+    msghdr.msg_iov = iov as *mut _;
+    msghdr.msg_iovlen = 1;
+    msghdr.msg_control = cmsg_buffer;
+    msghdr.msg_controllen = cmsg_buffer_len as _;
+
+    (msghdr, cmsg_layout, fd_len)
 }
 
 /// A common implementation of `sendmsg` that sends provided bytes with ancillary file descriptors
@@ -87,14 +84,13 @@ fn send_with_fd(socket: RawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
 
         // Fill cmsg with the file descriptors we are sending.
         let cmsg_header = libc::CMSG_FIRSTHDR(&mut msghdr as *mut _);
-        ptr::write(
-            cmsg_header,
-            libc::cmsghdr {
-                cmsg_level: libc::SOL_SOCKET,
-                cmsg_type: libc::SCM_RIGHTS,
-                cmsg_len: libc::CMSG_LEN(fd_len as u32) as _,
-            },
-        );
+        let mut cmsghdr = mem::zeroed::<libc::cmsghdr>();
+        cmsghdr.cmsg_level = libc::SOL_SOCKET;
+        cmsghdr.cmsg_type = libc::SCM_RIGHTS;
+        cmsghdr.cmsg_len = libc::CMSG_LEN(fd_len as u32) as _;
+
+        ptr::write(cmsg_header, cmsghdr);
+
         let cmsg_data = libc::CMSG_DATA(cmsg_header) as *mut RawFd;
         for (i, fd) in fds.iter().enumerate() {
             ptr::write_unaligned(cmsg_data.add(i), *fd);
