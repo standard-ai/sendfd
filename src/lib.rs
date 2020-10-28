@@ -71,7 +71,7 @@ unsafe fn construct_msghdr_for(
 
 /// A common implementation of `sendmsg` that sends provided bytes with ancillary file descriptors
 /// over either a datagram or stream unix socket.
-fn send_with_fd(socket: RawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+pub fn send_with_fd(socket: &impl AsRawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
     unsafe {
         let mut iov = libc::iovec {
             // NB: this casts *const to *mut, and in doing so we trust the OS to be a good citizen
@@ -95,7 +95,7 @@ fn send_with_fd(socket: RawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
         for (i, fd) in fds.iter().enumerate() {
             ptr::write_unaligned(cmsg_data.add(i), *fd);
         }
-        let count = libc::sendmsg(socket, &msghdr as *const _, 0);
+        let count = libc::sendmsg(socket.as_raw_fd(), &msghdr as *const _, 0);
         if count < 0 {
             let error = io::Error::last_os_error();
             alloc::dealloc(cmsg_buffer as *mut _, cmsg_layout);
@@ -109,7 +109,7 @@ fn send_with_fd(socket: RawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
 
 /// A common implementation of `recvmsg` that receives provided bytes and the ancillary file
 /// descriptors over either a datagram or stream unix socket.
-fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+pub fn recv_with_fd(socket: &impl AsRawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
     unsafe {
         let mut iov = libc::iovec {
             iov_base: bs.as_mut_ptr() as *mut _,
@@ -117,7 +117,7 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
         };
         let (mut msghdr, cmsg_layout, _) = construct_msghdr_for(&mut iov, fds.len());
         let cmsg_buffer = msghdr.msg_control;
-        let count = libc::recvmsg(socket, &mut msghdr as *mut _, 0);
+        let count = libc::recvmsg(socket.as_raw_fd(), &mut msghdr as *mut _, 0);
         if count < 0 {
             let error = io::Error::last_os_error();
             alloc::dealloc(cmsg_buffer as *mut _, cmsg_layout);
@@ -173,7 +173,7 @@ impl SendWithFd for net::UnixStream {
     /// Neither is guaranteed to be received by the other end in a single chunk and
     /// may arrive entirely independently.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
-        send_with_fd(self.as_raw_fd(), bytes, fds)
+        send_with_fd(self, bytes, fds)
     }
 }
 
@@ -184,7 +184,7 @@ impl SendWithFd for net::UnixDatagram {
     /// time, however the receiver end may not receive the full message if its buffers are too
     /// small.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
-        send_with_fd(self.as_raw_fd(), bytes, fds)
+        send_with_fd(self, bytes, fds)
     }
 }
 
@@ -195,7 +195,7 @@ impl RecvWithFd for net::UnixStream {
     /// data. In other words, it is not required that this receives the bytes and file descriptors
     /// that were sent with a single `send_with_fd` call by somebody else.
     fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
-        recv_with_fd(self.as_raw_fd(), bytes, fds)
+        recv_with_fd(self, bytes, fds)
     }
 }
 
@@ -211,7 +211,7 @@ impl RecvWithFd for net::UnixDatagram {
     /// the `fds` buffer. If the sender sends `fds.len()` descriptors, but prefaces the descriptors
     /// with some other ancilliary data, then some file descriptors may be truncated as well.
     fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
-        recv_with_fd(self.as_raw_fd(), bytes, fds)
+        recv_with_fd(self, bytes, fds)
     }
 }
 
