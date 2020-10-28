@@ -1,5 +1,15 @@
 //! Project changelog
 
+/// Release 0.3.3
+///
+/// * Compatibility with tokio::net::UnixStream and tokio::net::UnixDatagram for tokio 0.2 and 0.3.
+pub mod r0_3_3 {}
+
+/// Release 0.3.2
+///
+/// * Compatibility with musl.
+pub mod r0_3_2 {}
+
 /// Release 0.3.1
 ///
 /// * Compatibility with macOS and BSDs.

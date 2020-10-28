@@ -1,6 +1,6 @@
 [package]
 name = "sendfd"
-version = "0.3.2"
+version = "0.3.3"
 authors = [
     "Simonas Kazlauskas <simonas@standard.ai>",
     "Bernardo Meurer <bernardo@standard.ai>",
