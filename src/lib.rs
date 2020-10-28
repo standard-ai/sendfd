@@ -177,7 +177,53 @@ impl SendWithFd for net::UnixStream {
     }
 }
 
+#[cfg(feature = "tokio_0_2")]
+impl SendWithFd for tokio_0_2::net::UnixStream {
+    /// Send the bytes and the file descriptors as a stream.
+    ///
+    /// Neither is guaranteed to be received by the other end in a single chunk and
+    /// may arrive entirely independently.
+    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+        send_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
+#[cfg(feature = "tokio_0_3")]
+impl SendWithFd for tokio_0_3::net::UnixStream {
+    /// Send the bytes and the file descriptors as a stream.
+    ///
+    /// Neither is guaranteed to be received by the other end in a single chunk and
+    /// may arrive entirely independently.
+    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+        send_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
 impl SendWithFd for net::UnixDatagram {
+    /// Send the bytes and the file descriptors as a single packet.
+    ///
+    /// It is guaranteed that the bytes and the associated file descriptors will arrive at the same
+    /// time, however the receiver end may not receive the full message if its buffers are too
+    /// small.
+    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+        send_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
+#[cfg(feature = "tokio_0_2")]
+impl SendWithFd for tokio_0_2::net::UnixDatagram {
+    /// Send the bytes and the file descriptors as a single packet.
+    ///
+    /// It is guaranteed that the bytes and the associated file descriptors will arrive at the same
+    /// time, however the receiver end may not receive the full message if its buffers are too
+    /// small.
+    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+        send_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
+#[cfg(feature = "tokio_0_3")]
+impl SendWithFd for tokio_0_3::net::UnixDatagram {
     /// Send the bytes and the file descriptors as a single packet.
     ///
     /// It is guaranteed that the bytes and the associated file descriptors will arrive at the same
@@ -199,7 +245,65 @@ impl RecvWithFd for net::UnixStream {
     }
 }
 
+#[cfg(feature = "tokio_0_2")]
+impl RecvWithFd for tokio_0_2::net::UnixStream {
+    /// Receive the bytes and the file descriptors from the stream.
+    ///
+    /// It is not guaranteed that the received information will form a single coherent packet of
+    /// data. In other words, it is not required that this receives the bytes and file descriptors
+    /// that were sent with a single `send_with_fd` call by somebody else.
+    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+        recv_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
+#[cfg(feature = "tokio_0_3")]
+impl RecvWithFd for tokio_0_3::net::UnixStream {
+    /// Receive the bytes and the file descriptors from the stream.
+    ///
+    /// It is not guaranteed that the received information will form a single coherent packet of
+    /// data. In other words, it is not required that this receives the bytes and file descriptors
+    /// that were sent with a single `send_with_fd` call by somebody else.
+    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+        recv_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
 impl RecvWithFd for net::UnixDatagram {
+    /// Receive the bytes and the file descriptors as a single packet.
+    ///
+    /// It is guaranteed that the received information will form a single coherent packet, and data
+    /// received will match a corresponding `send_with_fd` call. Note, however, that in case the
+    /// receiving buffer(s) are to small, the message may get silently truncated and the
+    /// undelivered data will be discarded.
+    ///
+    /// For receiving the file descriptors, the internal buffer is sized according to the size of
+    /// the `fds` buffer. If the sender sends `fds.len()` descriptors, but prefaces the descriptors
+    /// with some other ancilliary data, then some file descriptors may be truncated as well.
+    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+        recv_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
+#[cfg(feature = "tokio_0_2")]
+impl RecvWithFd for tokio_0_2::net::UnixDatagram {
+    /// Receive the bytes and the file descriptors as a single packet.
+    ///
+    /// It is guaranteed that the received information will form a single coherent packet, and data
+    /// received will match a corresponding `send_with_fd` call. Note, however, that in case the
+    /// receiving buffer(s) are to small, the message may get silently truncated and the
+    /// undelivered data will be discarded.
+    ///
+    /// For receiving the file descriptors, the internal buffer is sized according to the size of
+    /// the `fds` buffer. If the sender sends `fds.len()` descriptors, but prefaces the descriptors
+    /// with some other ancilliary data, then some file descriptors may be truncated as well.
+    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+        recv_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
+#[cfg(feature = "tokio_0_3")]
+impl RecvWithFd for tokio_0_3::net::UnixDatagram {
     /// Receive the bytes and the file descriptors as a single packet.
     ///
     /// It is guaranteed that the received information will form a single coherent packet, and data
