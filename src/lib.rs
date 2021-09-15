@@ -167,6 +167,16 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
     }
 }
 
+impl SendWithFd for RawFd {
+    /// Send the bytes and the file descriptors as a stream.
+    ///
+    /// Neither is guaranteed to be received by the other end in a single chunk and
+    /// may arrive entirely independently.
+    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+        send_with_fd(*self, bytes, fds)
+    }
+}
+
 impl SendWithFd for net::UnixStream {
     /// Send the bytes and the file descriptors as a stream.
     ///
@@ -242,6 +252,17 @@ impl RecvWithFd for net::UnixStream {
     /// that were sent with a single `send_with_fd` call by somebody else.
     fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
         recv_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+}
+
+impl RecvWithFd for RawFd {
+    /// Receive the bytes and the file descriptors from the stream.
+    ///
+    /// It is not guaranteed that the received information will form a single coherent packet of
+    /// data. In other words, it is not required that this receives the bytes and file descriptors
+    /// that were sent with a single `send_with_fd` call by somebody else.
+    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+        recv_with_fd(*self, bytes, fds)
     }
 }
 
