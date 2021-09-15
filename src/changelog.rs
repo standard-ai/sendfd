@@ -1,5 +1,11 @@
 //! Project changelog
 
+/// Release 0.4.0
+///
+/// * tokio 0.2 and tokio 0.3 support has been replaced by support for tokio 1.0.
+/// * 1.53.0 is now the minimum supported version of the `rustc` toolchain.
+pub mod r0_4_0 {}
+
 /// Release 0.3.3
 ///
 /// * Compatibility with tokio::net::UnixStream and tokio::net::UnixDatagram for tokio 0.2 and 0.3.
