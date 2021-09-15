@@ -6,7 +6,6 @@ on:
     - '*.mkd'
     - 'LICENSE'
   pull_request:
-    types: [opened, repoened, synchronize]
 
 jobs:
   native-test:
@@ -16,6 +15,7 @@ jobs:
       matrix:
         rust_toolchain: [nightly, stable, 1.53.0]
         os: [ubuntu-latest, macOS-latest]
+        flags: ["--all-features", "--all-features --release", ""]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v2
@@ -25,26 +25,11 @@ jobs:
             toolchain: ${{ matrix.rust_toolchain }}
             profile: minimal
             default: true
-      - name: Update
-        uses: actions-rs/cargo@v1
-        with:
-          command: update
-          args: --manifest-path=Cargo.toml
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --manifest-path=Cargo.toml
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --manifest-path=Cargo.toml -- --nocapture
-      - name: Test Release
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features --manifest-path=Cargo.toml --release -- --nocapture
+          args: ${{ matrix.flags }} --manifest-path=Cargo.toml -- --nocapture
 
   bare-cross-build:
     runs-on: ubuntu-latest
