@@ -39,12 +39,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=Cargo.toml -- --nocapture
+          args: --all-features --manifest-path=Cargo.toml -- --nocapture
       - name: Test Release
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=Cargo.toml --release -- --nocapture
+          args: --all-features --manifest-path=Cargo.toml --release -- --nocapture
 
   bare-cross-build:
     runs-on: ubuntu-latest
