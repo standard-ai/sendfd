@@ -15,5 +15,4 @@ documentation = "https://docs.rs/sendfd"
 
 [dependencies]
 libc = "0.2"
-tokio_0_2 = { package = "tokio", version = "0.2", features = [ "uds" ], optional = true }
-tokio_0_3 = { package = "tokio", version = "0.3", features = [ "net" ], optional = true }
+tokio = { version = "1.0.0", features = [ "net" ], optional = true }
