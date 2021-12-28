@@ -1,8 +1,12 @@
 extern crate libc;
+#[cfg(feature = "tokio")]
+extern crate tokio;
 
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net;
 use std::{alloc, io, mem, ptr};
+#[cfg(feature = "tokio")]
+use tokio::io::Interest;
 
 pub mod changelog;
 
@@ -184,7 +188,7 @@ impl SendWithFd for tokio::net::UnixStream {
     /// Neither is guaranteed to be received by the other end in a single chunk and
     /// may arrive entirely independently.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
-        send_with_fd(self.as_raw_fd(), bytes, fds)
+        self.try_io(Interest::WRITABLE, || send_with_fd(self.as_raw_fd(), bytes, fds))
     }
 }
 
@@ -207,7 +211,7 @@ impl SendWithFd for tokio::net::UnixDatagram {
     /// time, however the receiver end may not receive the full message if its buffers are too
     /// small.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
-        send_with_fd(self.as_raw_fd(), bytes, fds)
+        self.try_io(Interest::WRITABLE, || send_with_fd(self.as_raw_fd(), bytes, fds))
     }
 }
 
@@ -230,7 +234,7 @@ impl RecvWithFd for tokio::net::UnixStream {
     /// data. In other words, it is not required that this receives the bytes and file descriptors
     /// that were sent with a single `send_with_fd` call by somebody else.
     fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
-        recv_with_fd(self.as_raw_fd(), bytes, fds)
+        self.try_io(Interest::READABLE, || recv_with_fd(self.as_raw_fd(), bytes, fds))
     }
 }
 
@@ -263,7 +267,7 @@ impl RecvWithFd for tokio::net::UnixDatagram {
     /// the `fds` buffer. If the sender sends `fds.len()` descriptors, but prefaces the descriptors
     /// with some other ancilliary data, then some file descriptors may be truncated as well.
     fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
-        recv_with_fd(self.as_raw_fd(), bytes, fds)
+        self.try_io(Interest::READABLE, || recv_with_fd(self.as_raw_fd(), bytes, fds))
     }
 }
 
