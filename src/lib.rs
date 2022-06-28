@@ -192,6 +192,18 @@ impl SendWithFd for tokio::net::UnixStream {
     }
 }
 
+#[cfg(feature = "tokio")]
+impl SendWithFd for tokio::net::unix::WriteHalf<'_> {
+    /// Send the bytes and the file descriptors as a stream.
+    ///
+    /// Neither is guaranteed to be received by the other end in a single chunk and
+    /// may arrive entirely independently.
+    fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+        let unix_stream: &tokio::net::UnixStream = self.as_ref();
+        unix_stream.send_with_fd(bytes, fds)
+    }
+}
+
 impl SendWithFd for net::UnixDatagram {
     /// Send the bytes and the file descriptors as a single packet.
     ///
@@ -235,6 +247,19 @@ impl RecvWithFd for tokio::net::UnixStream {
     /// that were sent with a single `send_with_fd` call by somebody else.
     fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
         self.try_io(Interest::READABLE, || recv_with_fd(self.as_raw_fd(), bytes, fds))
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl RecvWithFd for tokio::net::unix::ReadHalf<'_> {
+    /// Receive the bytes and the file descriptors from the stream.
+    ///
+    /// It is not guaranteed that the received information will form a single coherent packet of
+    /// data. In other words, it is not required that this receives the bytes and file descriptors
+    /// that were sent with a single `send_with_fd` call by somebody else.
+    fn recv_with_fd(&self, bytes: &mut [u8], fds: &mut [RawFd]) -> io::Result<(usize, usize)> {
+        let unix_stream: &tokio::net::UnixStream = self.as_ref();
+        unix_stream.recv_with_fd(bytes, fds)
     }
 }
 
