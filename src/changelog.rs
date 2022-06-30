@@ -6,6 +6,12 @@
 /// of this fix it was possible for an application to busy loop waiting for changes.
 pub mod r0_4_1 {}
 
+/// Release 0.4.1
+///
+/// * Implemented [SendWithFd](crate::SendWithFd) for [tokio::net::unix::WriteHalf]
+/// * Implemented [RecvWithFd](crate::RecvWithFd) for [tokio::net::unix::ReadHalf]
+pub mod r0_4_2 {}
+
 /// Release 0.4.0
 ///
 /// * tokio 0.2 and tokio 0.3 support has been replaced by support for tokio 1.0.
