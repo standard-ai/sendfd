@@ -6,7 +6,7 @@
 /// of this fix it was possible for an application to busy loop waiting for changes.
 pub mod r0_4_1 {}
 
-/// Release 0.4.1
+/// Release 0.4.2
 ///
 /// * Implemented [SendWithFd](crate::SendWithFd) for [tokio::net::unix::WriteHalf]
 /// * Implemented [RecvWithFd](crate::RecvWithFd) for [tokio::net::unix::ReadHalf]
