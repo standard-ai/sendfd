@@ -1,3 +1,5 @@
+#![cfg_attr(sendfd_docs, feature(doc_cfg))]
+
 extern crate libc;
 #[cfg(feature = "tokio")]
 extern crate tokio;
@@ -182,6 +184,7 @@ impl SendWithFd for net::UnixStream {
 }
 
 #[cfg(feature = "tokio")]
+#[cfg_attr(sendfd_docs, doc(cfg(feature = "tokio")))]
 impl SendWithFd for tokio::net::UnixStream {
     /// Send the bytes and the file descriptors as a stream.
     ///
@@ -193,6 +196,7 @@ impl SendWithFd for tokio::net::UnixStream {
 }
 
 #[cfg(feature = "tokio")]
+#[cfg_attr(sendfd_docs, doc(cfg(feature = "tokio")))]
 impl SendWithFd for tokio::net::unix::WriteHalf<'_> {
     /// Send the bytes and the file descriptors as a stream.
     ///
@@ -216,6 +220,7 @@ impl SendWithFd for net::UnixDatagram {
 }
 
 #[cfg(feature = "tokio")]
+#[cfg_attr(sendfd_docs, doc(cfg(feature = "tokio")))]
 impl SendWithFd for tokio::net::UnixDatagram {
     /// Send the bytes and the file descriptors as a single packet.
     ///
@@ -239,6 +244,7 @@ impl RecvWithFd for net::UnixStream {
 }
 
 #[cfg(feature = "tokio")]
+#[cfg_attr(sendfd_docs, doc(cfg(feature = "tokio")))]
 impl RecvWithFd for tokio::net::UnixStream {
     /// Receive the bytes and the file descriptors from the stream.
     ///
@@ -251,6 +257,7 @@ impl RecvWithFd for tokio::net::UnixStream {
 }
 
 #[cfg(feature = "tokio")]
+#[cfg_attr(sendfd_docs, doc(cfg(feature = "tokio")))]
 impl RecvWithFd for tokio::net::unix::ReadHalf<'_> {
     /// Receive the bytes and the file descriptors from the stream.
     ///
@@ -280,6 +287,7 @@ impl RecvWithFd for net::UnixDatagram {
 }
 
 #[cfg(feature = "tokio")]
+#[cfg_attr(sendfd_docs, doc(cfg(feature = "tokio")))]
 impl RecvWithFd for tokio::net::UnixDatagram {
     /// Receive the bytes and the file descriptors as a single packet.
     ///
