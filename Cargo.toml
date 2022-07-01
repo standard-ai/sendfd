@@ -1,6 +1,6 @@
 [package]
 name = "sendfd"
-version = "0.4.2"
+version = "0.4.3"
 authors = [
     "Simonas Kazlauskas <simonas@standard.ai>",
     "Bernardo Meurer <bernardo@standard.ai>",
@@ -12,7 +12,12 @@ keywords = ["ipc"]
 license = "Apache-2.0 OR BSD-3-Clause"
 repository = "https://github.com/standard-ai/sendfd"
 documentation = "https://docs.rs/sendfd"
+readme = "README.mkd"
 
 [dependencies]
 libc = "0.2"
 tokio = { version = "1.0.0", features = [ "net" ], optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "sendfd_docs"]
