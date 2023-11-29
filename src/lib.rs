@@ -4,6 +4,8 @@ extern crate libc;
 #[cfg(feature = "tokio")]
 extern crate tokio;
 
+#[cfg(feature = "borrowed-fd")]
+use std::os::fd::BorrowedFd;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net;
 use std::{alloc, io, mem, ptr};
@@ -16,6 +18,9 @@ pub mod changelog;
 pub trait SendWithFd {
     /// Send the bytes and the file descriptors.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize>;
+    /// Send the bytes and the file descriptors.
+    #[cfg(feature = "borrowed-fd")]
+    fn send_with_borrowed_fd(&self, bytes: &[u8], fds: &[BorrowedFd<'_>]) -> io::Result<usize>;
 }
 
 /// An extension trait that enables receiving associated file descriptors along with the data.
@@ -77,7 +82,7 @@ unsafe fn construct_msghdr_for(
 
 /// A common implementation of `sendmsg` that sends provided bytes with ancillary file descriptors
 /// over either a datagram or stream unix socket.
-fn send_with_fd(socket: RawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+fn send_with_fd<F: AsRawFd>(socket: RawFd, bs: &[u8], fds: &[F]) -> io::Result<usize> {
     unsafe {
         let mut iov = libc::iovec {
             // NB: this casts *const to *mut, and in doing so we trust the OS to be a good citizen
@@ -99,7 +104,7 @@ fn send_with_fd(socket: RawFd, bs: &[u8], fds: &[RawFd]) -> io::Result<usize> {
 
         let cmsg_data = libc::CMSG_DATA(cmsg_header) as *mut RawFd;
         for (i, fd) in fds.iter().enumerate() {
-            ptr::write_unaligned(cmsg_data.add(i), *fd);
+            ptr::write_unaligned(cmsg_data.add(i), fd.as_raw_fd());
         }
         let count = libc::sendmsg(socket, &msghdr as *const _, 0);
         if count < 0 {
@@ -181,6 +186,15 @@ impl SendWithFd for net::UnixStream {
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
         send_with_fd(self.as_raw_fd(), bytes, fds)
     }
+
+    /// Send the bytes and the file descriptors as a stream.
+    ///
+    /// Neither is guaranteed to be received by the other end in a single chunk and
+    /// may arrive entirely independently.
+    #[cfg(feature = "borrowed-fd")]
+    fn send_with_borrowed_fd(&self, bytes: &[u8], fds: &[BorrowedFd<'_>]) -> io::Result<usize> {
+        send_with_fd(self.as_raw_fd(), bytes, fds)
+    }
 }
 
 #[cfg(feature = "tokio")]
@@ -192,6 +206,17 @@ impl SendWithFd for tokio::net::UnixStream {
     /// may arrive entirely independently.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
         self.try_io(Interest::WRITABLE, || send_with_fd(self.as_raw_fd(), bytes, fds))
+    }
+
+    /// Send the bytes and the file descriptors as a stream.
+    ///
+    /// Neither is guaranteed to be received by the other end in a single chunk and
+    /// may arrive entirely independently.
+    #[cfg(feature = "borrowed-fd")]
+    fn send_with_borrowed_fd(&self, bytes: &[u8], fds: &[BorrowedFd<'_>]) -> io::Result<usize> {
+        self.try_io(Interest::WRITABLE, || {
+            send_with_fd(self.as_raw_fd(), bytes, fds)
+        })
     }
 }
 
@@ -206,6 +231,16 @@ impl SendWithFd for tokio::net::unix::WriteHalf<'_> {
         let unix_stream: &tokio::net::UnixStream = self.as_ref();
         unix_stream.send_with_fd(bytes, fds)
     }
+
+    /// Send the bytes and the file descriptors as a stream.
+    ///
+    /// Neither is guaranteed to be received by the other end in a single chunk and
+    /// may arrive entirely independently.
+    #[cfg(feature = "borrowed-fd")]
+    fn send_with_borrowed_fd(&self, bytes: &[u8], fds: &[BorrowedFd<'_>]) -> io::Result<usize> {
+        let unix_stream: &tokio::net::UnixStream = self.as_ref();
+        unix_stream.send_with_borrowed_fd(bytes, fds)
+    }
 }
 
 impl SendWithFd for net::UnixDatagram {
@@ -215,6 +250,16 @@ impl SendWithFd for net::UnixDatagram {
     /// time, however the receiver end may not receive the full message if its buffers are too
     /// small.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
+        send_with_fd(self.as_raw_fd(), bytes, fds)
+    }
+
+    /// Send the bytes and the file descriptors as a single packet.
+    ///
+    /// It is guaranteed that the bytes and the associated file descriptors will arrive at the same
+    /// time, however the receiver end may not receive the full message if its buffers are too
+    /// small.
+    #[cfg(feature = "borrowed-fd")]
+    fn send_with_borrowed_fd(&self, bytes: &[u8], fds: &[BorrowedFd<'_>]) -> io::Result<usize> {
         send_with_fd(self.as_raw_fd(), bytes, fds)
     }
 }
@@ -229,6 +274,18 @@ impl SendWithFd for tokio::net::UnixDatagram {
     /// small.
     fn send_with_fd(&self, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
         self.try_io(Interest::WRITABLE, || send_with_fd(self.as_raw_fd(), bytes, fds))
+    }
+
+    /// Send the bytes and the file descriptors as a single packet.
+    ///
+    /// It is guaranteed that the bytes and the associated file descriptors will arrive at the same
+    /// time, however the receiver end may not receive the full message if its buffers are too
+    /// small.
+    #[cfg(feature = "borrowed-fd")]
+    fn send_with_borrowed_fd(&self, bytes: &[u8], fds: &[BorrowedFd<'_>]) -> io::Result<usize> {
+        self.try_io(Interest::WRITABLE, || {
+            send_with_fd(self.as_raw_fd(), bytes, fds)
+        })
     }
 }
 
@@ -439,6 +496,46 @@ mod tests {
         }
         if let Ok(_) = l.send_with_fd(&sent_bytes[..], &[0xffi32][..]) {
             panic!("expected an error when sending a junk file descriptor");
+        }
+    }
+
+    #[cfg(feature = "borrowed-fd")]
+    #[test]
+    fn borrowed_fd() {
+        use std::os::fd::AsFd;
+
+        let (l, r) = net::UnixStream::pair().expect("create UnixStream pair");
+        let sent_bytes = b"hello world!";
+        let sent_fds = [l.as_fd(), r.as_fd()];
+        assert_eq!(
+            l.send_with_borrowed_fd(&sent_bytes[..], &sent_fds[..])
+                .expect("send should be successful"),
+            sent_bytes.len()
+        );
+        let mut recv_bytes = [0; 128];
+        let mut recv_fds = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(
+            r.recv_with_fd(&mut recv_bytes, &mut recv_fds)
+                .expect("recv should be successful"),
+            (sent_bytes.len(), sent_fds.len())
+        );
+        assert_eq!(recv_bytes[..sent_bytes.len()], sent_bytes[..]);
+        for (&sent, &recvd) in sent_fds.iter().zip(&recv_fds[..]) {
+            // Modify the sent resource and check if the received resource has been modified the
+            // same way.
+            let expected_value = Some(std::time::Duration::from_secs(42));
+            unsafe {
+                let s = net::UnixStream::from(sent.try_clone_to_owned().unwrap());
+                s.set_read_timeout(expected_value)
+                    .expect("set read timeout");
+                std::mem::forget(s);
+                assert_eq!(
+                    net::UnixStream::from_raw_fd(recvd)
+                        .read_timeout()
+                        .expect("get read timeout"),
+                    expected_value
+                );
+            }
         }
     }
 }
