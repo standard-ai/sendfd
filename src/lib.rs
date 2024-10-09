@@ -123,7 +123,7 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
         };
         let (mut msghdr, cmsg_layout, _) = construct_msghdr_for(&mut iov, fds.len());
         let cmsg_buffer = msghdr.msg_control;
-        let count = libc::recvmsg(socket, &mut msghdr as *mut _, 0);
+        let count = libc::recvmsg(socket, &mut msghdr as *mut _, libc::MSG_CMSG_CLOEXEC);
         if count < 0 {
             let error = io::Error::last_os_error();
             alloc::dealloc(cmsg_buffer as *mut _, cmsg_layout);
