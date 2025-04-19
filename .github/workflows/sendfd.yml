@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_toolchain: [nightly, stable, 1.53.0]
+        rust_toolchain: [nightly, stable, 1.70.0]
         os: [ubuntu-latest, macOS-latest]
         flags: ["--all-features", "--all-features --release", ""]
     timeout-minutes: 20
