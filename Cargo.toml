@@ -1,6 +1,6 @@
 [package]
 name = "sendfd"
-version = "0.4.4"
+version = "0.4.5"
 authors = [
     "Simonas Kazlauskas <simonas@standard.ai>",
     "Bernardo Meurer <bernardo@standard.ai>",
@@ -21,3 +21,6 @@ tokio = { version = "1.0.0", features = [ "net" ], optional = true }
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "sendfd_docs"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(sendfd_docs)'] }
