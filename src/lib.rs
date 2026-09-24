@@ -46,7 +46,7 @@ unsafe fn construct_msghdr_for(
     fd_count: usize,
 ) -> (libc::msghdr, alloc::Layout, usize) {
     let fd_len = mem::size_of::<RawFd>() * fd_count;
-    let cmsg_buffer_len = libc::CMSG_SPACE(fd_len as u32) as usize;
+    let cmsg_buffer_len = libc::CMSG_SPACE(0) as usize + fd_len;
     let layout = alloc::Layout::from_size_align(cmsg_buffer_len, mem::align_of::<libc::cmsghdr>());
     let (cmsg_buffer, cmsg_layout) = if let Ok(layout) = layout {
         const NULL_MUT_U8: *mut u8 = ptr::null_mut();
@@ -121,7 +121,8 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
             iov_base: bs.as_mut_ptr() as *mut _,
             iov_len: bs.len(),
         };
-        let (mut msghdr, cmsg_layout, _) = construct_msghdr_for(&mut iov, fds.len());
+        let fds_len = fds.len();
+        let (mut msghdr, cmsg_layout, _) = construct_msghdr_for(&mut iov, fds_len);
         let cmsg_buffer = msghdr.msg_control;
         let count = libc::recvmsg(socket, &mut msghdr as *mut _, 0);
         if count < 0 {
@@ -161,7 +162,11 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
                         // resources.
                         //
                         // TODO: consider using unreachable_unchecked
-                        unreachable!();
+                        panic!(
+                            "buffer was sized for exactly {} but apparently received {}",
+                            fds_len,
+                            rawfd_count
+                        );
                     }
                 }
             }
@@ -470,5 +475,21 @@ mod tests {
                 .expect("recv should be successful"),
             (sent_bytes.len(), sent_fds.len())
         );
+    }
+
+    #[test]
+    fn stream_fd_receives_exact_number_of_fds() {
+        let (tx, rx) = net::UnixStream::pair().unwrap();
+        let files: Vec<_> = (0..4)
+            .map(|_| std::fs::File::open("/dev/null").unwrap())
+            .collect();
+        let raw: Vec<i32> = files.iter().map(|f| f.as_raw_fd()).collect();
+        tx.send_with_fd(b"x", &raw).unwrap();
+
+        let mut bytes = [0u8; 8];
+        let mut fds = [0i32; 1];
+        let (n, fd_count) = rx.recv_with_fd(&mut bytes, &mut fds).unwrap();
+        assert_eq!(fd_count, 1);
+        assert_eq!(n, 1);
     }
 }
