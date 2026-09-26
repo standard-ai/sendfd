@@ -46,7 +46,7 @@ unsafe fn construct_msghdr_for(
     fd_count: usize,
 ) -> (libc::msghdr, alloc::Layout, usize) {
     let fd_len = mem::size_of::<RawFd>() * fd_count;
-    let cmsg_buffer_len = libc::CMSG_SPACE(fd_len as u32) as usize;
+    let cmsg_buffer_len = libc::CMSG_SPACE(0) as usize + fd_len;
     let layout = alloc::Layout::from_size_align(cmsg_buffer_len, mem::align_of::<libc::cmsghdr>());
     let (cmsg_buffer, cmsg_layout) = if let Ok(layout) = layout {
         const NULL_MUT_U8: *mut u8 = ptr::null_mut();
@@ -121,7 +121,8 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
             iov_base: bs.as_mut_ptr() as *mut _,
             iov_len: bs.len(),
         };
-        let (mut msghdr, cmsg_layout, _) = construct_msghdr_for(&mut iov, fds.len());
+        let fds_len = fds.len();
+        let (mut msghdr, cmsg_layout, _) = construct_msghdr_for(&mut iov, fds_len);
         let cmsg_buffer = msghdr.msg_control;
         let count = libc::recvmsg(socket, &mut msghdr as *mut _, 0);
         if count < 0 {
@@ -147,10 +148,23 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
                 let rawfd_count = (data_byte_count / mem::size_of::<RawFd>()) as isize;
                 let fd_ptr = data_ptr as *const RawFd;
                 for i in 0..rawfd_count {
-                    if let Some((dst, rest)) = { fds }.split_first_mut() {
-                        *dst = ptr::read_unaligned(fd_ptr.offset(i));
+                    let recvd_fd = ptr::read_unaligned(fd_ptr.offset(i));
+                    if let [dst, rest@..] = fds {
+                        *dst = recvd_fd;
                         descriptor_count += 1;
                         fds = rest;
+                    } else if cfg!(target_vendor = "apple") {
+                        // On apple systems the kernel behaviour is insane. It seems to first
+                        // allocate the file descriptors it wants to return to the process table
+                        // with no concern about how many it is able to write back into the buffer
+                        // provided. Then it writes the number of such file descriptors to
+                        // `cmsg_len` (which can be more than allocated?)
+                        //
+                        // We have to go through the excess file descriptors and close them in order
+                        // to prevent silent DoS! Most other UNIXes does this for us transparently.
+                        if libc::close(recvd_fd) < 0 {
+                            panic!("unable to close excess received file descriptors");
+                        }
                     } else {
                         // This branch is unreachable. We allocate the ancillary data buffer just
                         // large enough to fit exactly the number of `RawFd`s that are in the `fds`
@@ -161,7 +175,10 @@ fn recv_with_fd(socket: RawFd, bs: &mut [u8], mut fds: &mut [RawFd]) -> io::Resu
                         // resources.
                         //
                         // TODO: consider using unreachable_unchecked
-                        unreachable!();
+                        panic!(
+                            "buffer was sized for exactly {} but apparently received {} fds",
+                            fds_len, rawfd_count
+                        );
                     }
                 }
             }
@@ -470,5 +487,44 @@ mod tests {
                 .expect("recv should be successful"),
             (sent_bytes.len(), sent_fds.len())
         );
+    }
+
+    #[test]
+    fn stream_fd_receives_exact_number_of_fds_boundaries() {
+        let (tx, rx) = net::UnixStream::pair().unwrap();
+        for _ in 0..64 {
+            let file = std::fs::File::open("/dev/null").unwrap();
+            let raw: [i32; 1] = [file.as_raw_fd()];
+            tx.send_with_fd(b"x", &raw).unwrap();
+        }
+        for _ in 0..64 {
+            let mut bytes = [0u8; 8];
+            let mut fds = [0i32; 8];
+            let (n, fd_count) = rx.recv_with_fd(&mut bytes, &mut fds).unwrap();
+            assert_eq!((n, fd_count), (1, 1));
+        }
+    }
+
+    #[test]
+    fn stream_fd_receives_exact_number_of_fds() {
+        let (tx, rx) = net::UnixStream::pair().unwrap();
+        let files: Vec<_> = (0..64)
+            .map(|_| std::fs::File::open("/dev/null").unwrap())
+            .collect();
+        let raw: Vec<i32> = files.iter().map(|f| f.as_raw_fd()).collect();
+        tx.send_with_fd(b"x", &raw).unwrap();
+
+        let mut bytes = [0u8; 8];
+        let mut fds = [0i32; 1];
+        let (n, fd_count) = rx.recv_with_fd(&mut bytes, &mut fds).unwrap();
+        assert_eq!(fd_count, 1);
+        assert_eq!(n, 1);
+
+        tx.send_with_fd(b"y", &[]).unwrap();
+        let mut bytes = [0u8; 8];
+        let mut fds = [0i32; 128];
+        let (n, fd_count) = rx.recv_with_fd(&mut bytes, &mut fds).unwrap();
+        assert_eq!(fd_count, 0);
+        assert_eq!(n, 1);
     }
 }
